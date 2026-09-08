@@ -3,7 +3,7 @@
 A fully client-side Rubik's Cube solver that implements the **Kociemba two-phase algorithm** using IDA search with precomputed pruning tables.  
 All computations happen locally in your browser — no network requests, no dependencies, and no server-side processing.
 
-(screenshot.png) 
+![Demo Screenshot](screenshot.png) *(replace with your own screenshot)*
 
 ## ✨ Features
 
