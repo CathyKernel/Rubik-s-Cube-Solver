@@ -1,6 +1,6 @@
 # Rubik's Cube Solver — Kociemba Two-Phase Algorithm
 
-A fully client-side Rubik's Cube solver that implements the **Kociemba two-phase algorithm** using IDA search with precomputed pruning tables.  
+A fully client-side Rubik's Cube solver that implements the **Kociemba two-phase algorithm** using IDA* search with precomputed pruning tables.  
 All computations happen locally in your browser — no network requests, no dependencies, and no server-side processing.
 
 ![Demo Screenshot](./screenshot.png) 
