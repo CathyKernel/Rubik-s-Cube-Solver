@@ -36,7 +36,7 @@ The search is performed inside a **Web Worker** to avoid blocking the main threa
 
 ### Online Demo
 
-[**Launch the Solver**](https://your-demo-link.com) *(if hosted)*
+[**Launch the Solver**](https://cathyli-rubik-s-cube-solver.netlify.app/) 
 
 ### Local Usage
 
