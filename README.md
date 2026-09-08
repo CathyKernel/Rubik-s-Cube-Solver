@@ -3,7 +3,7 @@
 A fully client-side Rubik's Cube solver that implements the **Kociemba two-phase algorithm** using IDA* search with precomputed pruning tables.  
 All computations happen locally in your browser — no network requests, no dependencies, and no server-side processing.
 
-![Demo Screenshot](screenshot.png) *(replace with your own screenshot)*
+![Demo Screenshot](screenshot.jpg) 
 
 ## ✨ Features
 
@@ -70,4 +70,19 @@ No build tools, no npm, no installation – just pure HTML / CSS / JavaScript.
 - **Concurrency** – Web Worker for heavy computations; fallback to main thread if workers are unavailable.
 - **Performance** – Tables are stored as `Uint8Array` / `Uint16Array` for memory efficiency; search typically completes within a few seconds.
 
-## 📁 File Structure
+## 🤝 Contributing
+
+Contributions are welcome! If you find a bug, have a feature request, or want to improve the algorithm, please open an issue or submit a pull request.
+
+- For major changes, please discuss the idea first.
+- Keep the code self‑contained (no external libraries).
+- Ensure all tests (manual) pass.
+
+## 🙏 Acknowledgements
+
+- Herbert Kociemba – for the original two‑phase algorithm and insights.
+- The cubing community – for open discussions and resources.
+
+---
+
+**Happy cubing!** 🧩
