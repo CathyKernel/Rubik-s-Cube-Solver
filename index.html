@@ -1,0 +1,1870 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rubik's Cube Solver — Kociemba Two-Phase Algorithm</title>
+<style>
+  :root {
+    --bg: #0e131e;
+    --panel: #161d2c;
+    --panel-2: #1b2436;
+    --line: #26314a;
+    --text: #e8edf6;
+    --muted: #8fa0ba;
+    --accent: #4da3ff;
+    --p1: #4da3ff;
+    --p2: #ffc857;
+    --ok: #3ecf8e;
+    --err: #ff6b6b;
+    --u: #f6f7f8;
+    --r: #c02b38;
+    --f: #0fa958;
+    --d: #ffd21e;
+    --l: #ff7a1a;
+    --b: #1a6dd4;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif; }
+  body { min-height: 100vh; display: flex; flex-direction: column; }
+
+  header { padding: 18px 28px 10px; }
+  header h1 { margin: 0; font-size: 22px; letter-spacing: 0.4px; }
+  header h1 span { color: var(--accent); }
+  header .tagline { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+
+  main { flex: 1; display: flex; flex-wrap: wrap; gap: 18px; padding: 10px 28px 26px; align-items: stretch; }
+
+  /* ---------------- stage ---------------- */
+  .stage-panel { flex: 1 1 480px; min-width: 420px; display: flex; flex-direction: column; }
+  .viewport { position: relative; flex: 1; min-height: 430px; border: 1px solid var(--line);
+    border-radius: 14px; background: radial-gradient(ellipse at 50% 38%, #182136 0%, #0e131e 72%);
+    overflow: hidden; cursor: grab; }
+  .viewport:active { cursor: grabbing; }
+  .persp { position: absolute; inset: 0; perspective: 1150px; }
+  .scene { position: absolute; left: 50%; top: 50%; transform-style: preserve-3d; }
+  .cubie { position: absolute; width: 56px; height: 56px; left: -28px; top: -28px;
+    transform-style: preserve-3d; }
+  .face { position: absolute; inset: 0; border: 2px solid #0a0e16; border-radius: 7px;
+    background: #0d1119; backface-visibility: hidden; }
+  .face.sticker { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.10); }
+  .hint { text-align: center; color: var(--muted); font-size: 12.5px; margin: 10px 0; }
+
+  .movepad { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+  .movepad button { padding: 9px 0; font-size: 14.5px; font-weight: 600; }
+
+  /* ---------------- side panel ---------------- */
+  .side-panel { flex: 0 1 430px; min-width: 380px; display: flex; flex-direction: column; gap: 14px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
+  .card h2 { margin: 0 0 12px; font-size: 13px; text-transform: uppercase; letter-spacing: 1.6px;
+    color: var(--muted); font-weight: 700; }
+
+  button { background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 9px; padding: 9px 14px; font-size: 14px; cursor: pointer; transition: background .15s, border-color .15s; }
+  button:hover:not(:disabled) { background: #232f47; border-color: #35507c; }
+  button:disabled { opacity: 0.45; cursor: default; }
+  button.primary { background: #1d4d86; border-color: #2a66ad; }
+  button.primary:hover:not(:disabled) { background: #235da3; }
+
+  .btnrow { display: flex; flex-wrap: wrap; gap: 8px; }
+
+  .status { margin-top: 12px; padding: 10px 12px; border-radius: 9px; font-size: 13.5px;
+    background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+    line-height: 1.45; min-height: 40px; }
+  .status.ok { color: var(--ok); border-color: #1d5c43; }
+  .status.err { color: var(--err); border-color: #6b2430; }
+  .status.busy { color: var(--accent); border-color: #234c7d; }
+
+  /* solution */
+  .phase { margin-top: 10px; }
+  .phase-tag { display: inline-block; font-size: 11.5px; font-weight: 700; letter-spacing: 0.8px;
+    padding: 3px 9px; border-radius: 20px; margin-bottom: 7px; }
+  .phase-tag.p1 { background: rgba(77,163,255,0.14); color: var(--p1); border: 1px solid rgba(77,163,255,0.4); }
+  .phase-tag.p2 { background: rgba(255,200,87,0.12); color: var(--p2); border: 1px solid rgba(255,200,87,0.4); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-family: Consolas, Menlo, monospace; font-size: 14px; font-weight: 600;
+    background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px;
+    padding: 4px 9px; color: var(--text); transition: all .12s; }
+  .chip.done { opacity: 0.38; }
+  .chip.cur { background: #1d4d86; border-color: var(--accent); color: #fff; transform: translateY(-1px); }
+  .phase .p2chips .chip.cur { background: #8a6a1c; border-color: var(--p2); }
+  .empty { color: var(--muted); font-size: 13px; }
+
+  .playrow { display: flex; align-items: center; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  .playrow .progress { color: var(--muted); font-size: 13px; min-width: 88px; }
+  .speed { display: flex; align-items: center; gap: 8px; margin-left: auto; font-size: 12.5px; color: var(--muted); }
+  input[type=range] { width: 110px; accent-color: var(--accent); }
+
+  /* net editor */
+  .net-wrap { display: flex; justify-content: center; }
+  .net { display: grid; grid-template-columns: repeat(12, 17px); grid-template-rows: repeat(9, 17px); gap: 2px; }
+  .cell { border-radius: 3px; border: 1px solid rgba(0,0,0,0.45); cursor: pointer; }
+  .cell.center { cursor: default; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.28); }
+  .palette { display: flex; justify-content: center; gap: 8px; margin-top: 12px; }
+  .swatch { width: 30px; height: 30px; border-radius: 7px; border: 2px solid rgba(0,0,0,0.45); cursor: pointer; }
+  .swatch.sel { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .netnote { color: var(--muted); font-size: 12px; margin-top: 10px; line-height: 1.5; text-align: center; }
+
+  footer { padding: 10px 28px 20px; color: #64748d; font-size: 12px; line-height: 1.6; }
+  footer b { color: #8fa0ba; }
+
+  @media (max-width: 980px) { main { padding: 10px 14px 20px; } header { padding: 14px 14px 6px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Rubik's Cube <span>Solver</span></h1>
+  <p class="tagline">Kociemba two-phase algorithm &middot; IDA* search with pruning tables &middot; pure HTML / CSS / JavaScript, no libraries</p>
+</header>
+
+<main>
+  <section class="stage-panel">
+    <div class="viewport" id="viewport">
+      <div class="persp"><div class="scene" id="scene"></div></div>
+    </div>
+    <div class="hint">Drag the cube to orbit the view &middot; use the pad below to turn layers by hand</div>
+    <div class="movepad" id="movepad"></div>
+  </section>
+
+  <section class="side-panel">
+    <div class="card">
+      <h2>Cube state</h2>
+      <div class="btnrow">
+        <button id="btn-random">Random scramble</button>
+        <button id="btn-reset">Reset to solved</button>
+        <button id="btn-solve" class="primary" disabled>Solve</button>
+      </div>
+      <div id="status" class="status">Initializing solver&hellip;</div>
+    </div>
+
+    <div class="card">
+      <h2>Solution</h2>
+      <div id="solution"><div class="empty">No solution yet — scramble the cube and press <b>Solve</b>.</div></div>
+      <div class="playrow">
+        <button id="btn-back" disabled title="Step back">&laquo; Back</button>
+        <button id="btn-play" disabled>Play</button>
+        <button id="btn-fwd" disabled title="Step forward">Fwd &raquo;</button>
+        <span class="progress" id="progress">&ndash;</span>
+        <span class="speed">Speed <input type="range" id="speed" min="0.3" max="3" step="0.1" value="1"><span id="speedval">&times;1.0</span></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Paint your own state</h2>
+      <div class="net-wrap"><div class="net" id="net"></div></div>
+      <div class="palette" id="palette"></div>
+      <div class="btnrow" style="margin-top:12px; justify-content:center;">
+        <button id="btn-apply">Apply painted state</button>
+        <button id="btn-revert">Revert edits</button>
+      </div>
+      <div class="netnote">Pick a color, click stickers to paint, then <b>Apply</b>.<br>
+        Centers are fixed (standard scheme: U&nbsp;white &middot; R&nbsp;red &middot; F&nbsp;green &middot; D&nbsp;yellow &middot; L&nbsp;orange &middot; B&nbsp;blue).</div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <b>How it works:</b> the solver models the cube as a cubie-level group, reduces the state to the subgroup
+  G1 = &#1028;U, D, R2, L2, F2, B2&#1029; in <b>phase 1</b> (orientations + middle-layer edges), then finishes
+  with only half turns and U/D quarter turns in <b>phase 2</b>. Both phases run IDA* with BFS-generated
+  pruning tables inside a Web Worker, so the page stays responsive. Solutions average ~22 moves.
+  Everything is computed locally — no network, no dependencies.
+</footer>
+
+<!-- Solver engine (main thread): defines window.CubeSolver -->
+<script>
+/*
+ * solver_core.js — Rubik's Cube engine + Kociemba two-phase solver (pure JS, no deps).
+ *
+ * Conventions
+ * -----------
+ * Corners  : 0 URF, 1 UFL, 2 ULB, 3 UBR, 4 DFR, 5 DLF, 6 DBL, 7 DRB
+ * Edges    : 0 UR, 1 UF, 2 UL, 3 UB, 4 DR, 5 DF, 6 DL, 7 DB, 8 FR, 9 FL, 10 BL, 11 BR
+ * Colors   : 0 U, 1 R, 2 F, 3 D, 4 L, 5 B   (face letters used in facelet strings)
+ * State    : piece-at-position.  cp[i] = corner piece located at position i,
+ *            co[i] = orientation of that piece (0..2), likewise ep/eo for edges.
+ * Move M   : applying M to a state S gives  S'[i] = S[M[i]] (piece-at-position compose),
+ *            co: S'.co[i] = (S.co[M.cp[i]] + M.co[i]) % 3, eo: xor.
+ * Facelets : 54 chars in order U1..U9 R1..R9 F1..F9 D1..D9 L1..L9 B1..B9 (Kociemba layout).
+ */
+(function (root, factory) {
+  /* istanbul ignore next */
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.CubeSolver = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
+  'use strict';
+
+  // ------------------------------------------------------------------
+  // Move definitions (verified against orientation/permutation invariants)
+  // ------------------------------------------------------------------
+  var MOVES = [
+    // U
+    { cp: [3, 0, 1, 2, 4, 5, 6, 7], co: [0, 0, 0, 0, 0, 0, 0, 0],
+      ep: [3, 0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11], eo: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+    // R
+    { cp: [4, 1, 2, 0, 7, 5, 6, 3], co: [2, 0, 0, 1, 1, 0, 0, 2],
+      ep: [8, 1, 2, 3, 11, 5, 6, 7, 4, 9, 10, 0], eo: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+    // F
+    { cp: [1, 5, 2, 3, 0, 4, 6, 7], co: [1, 2, 0, 0, 2, 1, 0, 0],
+      ep: [0, 9, 2, 3, 4, 8, 6, 7, 1, 5, 10, 11], eo: [0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0] },
+    // D
+    { cp: [0, 1, 2, 3, 5, 6, 7, 4], co: [0, 0, 0, 0, 0, 0, 0, 0],
+      ep: [0, 1, 2, 3, 5, 6, 7, 4, 8, 9, 10, 11], eo: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+    // L
+    { cp: [0, 2, 6, 3, 4, 1, 5, 7], co: [0, 1, 2, 0, 0, 2, 1, 0],
+      ep: [0, 1, 10, 3, 4, 5, 9, 7, 8, 2, 6, 11], eo: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+    // B
+    { cp: [0, 1, 3, 7, 4, 5, 2, 6], co: [0, 0, 1, 2, 0, 0, 2, 1],
+      ep: [0, 1, 2, 11, 4, 5, 6, 10, 8, 9, 3, 7], eo: [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1] }
+  ];
+
+  var MOVE_NAMES = ['U', 'U2', "U'", 'R', 'R2', "R'", 'F', 'F2', "F'",
+    'D', 'D2', "D'", 'L', 'L2', "L'", 'B', 'B2', "B'"];
+
+  // 18 move cubes: m = face*3 + power  (power 0 = CW, 1 = half, 2 = CCW)
+  var MOVE_CUBES = [];
+  var IDENTITY = { cp: [0, 1, 2, 3, 4, 5, 6, 7], co: [0, 0, 0, 0, 0, 0, 0, 0],
+    ep: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], eo: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] };
+
+  function applyMoveToState(S, M) {
+    var cp = new Array(8), co = new Array(8), ep = new Array(12), eo = new Array(12), i, mi;
+    for (i = 0; i < 8; i++) { mi = M.cp[i]; cp[i] = S.cp[mi]; co[i] = (S.co[mi] + M.co[i]) % 3; }
+    for (i = 0; i < 12; i++) { mi = M.ep[i]; ep[i] = S.ep[mi]; eo[i] = S.eo[mi] ^ M.eo[i]; }
+    return { cp: cp, co: co, ep: ep, eo: eo };
+  }
+
+  (function buildMoveCubes() {
+    var f, p, cur, base;
+    for (f = 0; f < 6; f++) {
+      base = MOVES[f]; cur = IDENTITY;
+      for (p = 0; p < 3; p++) {
+        cur = applyMoveToState(cur, base);
+        MOVE_CUBES[f * 3 + p] = cur;
+      }
+    }
+  })();
+
+  // Face constraints for canonical move ordering (no same face, opposite faces ordered)
+  var OPPOSITE = [3, 4, 5, 0, 1, 2];
+
+  function moveAllowed(prevFace, face) {
+    if (prevFace < 0) return true;
+    if (face === prevFace) return false;
+    if (OPPOSITE[face] === prevFace && face < prevFace) return false;
+    return true;
+  }
+
+  // ------------------------------------------------------------------
+  // Facelet <-> cubie conversion (Kociemba layout)
+  // ------------------------------------------------------------------
+  var CORNER_FACELET = [
+    [8, 9, 20], [6, 18, 38], [0, 36, 47], [2, 45, 11],
+    [29, 26, 15], [27, 44, 24], [33, 53, 42], [35, 17, 51]
+  ];
+  var EDGE_FACELET = [
+    [5, 10], [7, 19], [3, 37], [1, 46], [32, 16], [28, 25], [30, 43], [34, 52],
+    [23, 12], [21, 39], [50, 41], [48, 14]
+  ];
+  var CORNER_COLOR = [
+    [0, 1, 2], [0, 2, 4], [0, 4, 5], [0, 5, 1],
+    [3, 2, 1], [3, 4, 2], [3, 5, 4], [3, 1, 5]
+  ];
+  var EDGE_COLOR = [
+    [0, 1], [0, 2], [0, 4], [0, 5], [3, 1], [3, 2], [3, 4], [3, 5],
+    [2, 1], [2, 4], [5, 4], [5, 1]
+  ];
+
+  function faceletsToCubie(s) {
+    if (typeof s !== 'string' || s.length !== 54) throw new Error('Facelet string must be exactly 54 characters.');
+    var f = new Array(54), i, j, ori;
+    for (i = 0; i < 54; i++) {
+      var c = s.charAt(i);
+      var v = 'URFDLB'.indexOf(c);
+      if (v < 0) throw new Error('Invalid character "' + c + '" at position ' + (i + 1) + ' (expected U, R, F, D, L or B).');
+      f[i] = v;
+    }
+    var count = [0, 0, 0, 0, 0, 0];
+    for (i = 0; i < 54; i++) count[f[i]]++;
+    for (i = 0; i < 6; i++) if (count[i] !== 9) throw new Error('Color ' + 'URFDLB'.charAt(i) + ' appears ' + count[i] + ' times (expected 9).');
+    for (i = 0; i < 6; i++) if (f[i * 9 + 4] !== i) throw new Error('Center of face ' + 'URFDLB'.charAt(i) + ' is wrong (state uses a rotated color scheme).');
+
+    var cp = new Array(8), co = new Array(8), ep = new Array(12), eo = new Array(12);
+    for (i = 0; i < 8; i++) {
+      for (ori = 0; ori < 3; ori++) if (f[CORNER_FACELET[i][ori]] === 0 || f[CORNER_FACELET[i][ori]] === 3) break;
+      if (ori > 2) throw new Error('Corner ' + i + ': no U/D colored sticker found.');
+      var col1 = f[CORNER_FACELET[i][(ori + 1) % 3]];
+      var col2 = f[CORNER_FACELET[i][(ori + 2) % 3]];
+      for (j = 0; j < 8; j++) {
+        if (col1 === CORNER_COLOR[j][1] && col2 === CORNER_COLOR[j][2]) { cp[i] = j; co[i] = ori % 3; break; }
+      }
+      if (j === 8) throw new Error('Corner ' + i + ' has an impossible color combination.');
+    }
+    for (i = 0; i < 12; i++) {
+      var found = false;
+      for (j = 0; j < 12; j++) {
+        if (f[EDGE_FACELET[i][0]] === EDGE_COLOR[j][0] && f[EDGE_FACELET[i][1]] === EDGE_COLOR[j][1]) { ep[i] = j; eo[i] = 0; found = true; break; }
+        if (f[EDGE_FACELET[i][0]] === EDGE_COLOR[j][1] && f[EDGE_FACELET[i][1]] === EDGE_COLOR[j][0]) { ep[i] = j; eo[i] = 1; found = true; break; }
+      }
+      if (!found) throw new Error('Edge ' + i + ' has an impossible color combination.');
+    }
+    return { cp: cp, co: co, ep: ep, eo: eo };
+  }
+
+  function cubieToFacelets(S) {
+    var out = new Array(54), i, s;
+    for (i = 0; i < 6; i++) out[i * 9 + 4] = i; // face centers are fixed
+    for (i = 0; i < 8; i++) {
+      for (s = 0; s < 3; s++) out[CORNER_FACELET[i][s]] = CORNER_COLOR[S.cp[i]][(s + 3 - S.co[i]) % 3];
+    }
+    for (i = 0; i < 12; i++) {
+      for (s = 0; s < 2; s++) out[EDGE_FACELET[i][s]] = EDGE_COLOR[S.ep[i]][(s + S.eo[i]) % 2];
+    }
+    return out.map(function (v) { return 'URFDLB'.charAt(v); }).join('');
+  }
+
+  function isSolved(S) {
+    var i;
+    for (i = 0; i < 8; i++) if (S.cp[i] !== i || S.co[i] !== 0) return false;
+    for (i = 0; i < 12; i++) if (S.ep[i] !== i || S.eo[i] !== 0) return false;
+    return true;
+  }
+
+  function permParity(p, n) {
+    var parity = 0, i, j;
+    for (i = 0; i < n; i++) for (j = i + 1; j < n; j++) if (p[i] > p[j]) parity ^= 1;
+    return parity;
+  }
+
+  // Deep group-theoretic validation used before solving (see paper, Prop. invariants)
+  function validateState(S) {
+    var i, sumT = 0, sumF = 0;
+    for (i = 0; i < 8; i++) sumT += S.co[i];
+    if (sumT % 3 !== 0) throw new Error('Invalid cube: corner twist is impossible (sum of twists \u2260 0 mod 3).');
+    for (i = 0; i < 12; i++) sumF += S.eo[i];
+    if (sumF % 2 !== 0) throw new Error('Invalid cube: edge flip is impossible (odd number of flipped edges).');
+    if (permParity(S.cp, 8) !== permParity(S.ep, 12)) throw new Error('Invalid cube: corner and edge permutations have different parity.');
+    return true;
+  }
+
+  // ------------------------------------------------------------------
+  // Coordinates
+  // ------------------------------------------------------------------
+  var C = (function binomial() {
+    var t = [], n, k;
+    for (n = 0; n <= 12; n++) { t[n] = []; for (k = 0; k <= 12; k++) t[n][k] = (k === 0 || k === n) ? 1 : (k > n ? 0 : t[n - 1][k - 1] + t[n - 1][k]); }
+    return t;
+  })();
+
+  function getTwist(S) { var t = 0, i; for (i = 0; i < 7; i++) t += S.co[i] * Math.pow(3, i); return Math.round(t); }
+  function getFlip(S) { var f = 0, i; for (i = 0; i < 11; i++) f += S.eo[i] * Math.pow(2, i); return f; }
+  function getSliceComb(S) { // unordered positions of the 4 slice edges -> 0..494
+    var pos = [], i;
+    for (i = 0; i < 12; i++) if (S.ep[i] >= 8) pos.push(i);
+    return C[pos[0]][1] + C[pos[1]][2] + C[pos[2]][3] + C[pos[3]][4];
+  }
+  function encodePerm(p, n) {
+    var idx = 0, i, j, r;
+    for (i = 0; i < n - 1; i++) {
+      r = 0;
+      for (j = i + 1; j < n; j++) if (p[j] < p[i]) r++;
+      idx = idx * (n - i) + r;
+    }
+    return idx;
+  }
+  function decodePerm(idx, n, out) {
+    var avail = [], i, r;
+    for (i = 0; i < n; i++) avail[i] = i;
+    var rr = new Array(n);
+    for (i = n - 2; i >= 0; i--) { rr[i] = idx % (n - i); idx = (idx - rr[i]) / (n - i); }
+    for (i = 0; i < n - 1; i++) { out[i] = avail[rr[i]]; avail.splice(rr[i], 1); }
+    out[n - 1] = avail[0];
+  }
+  function getCPerm(S) { return encodePerm(S.cp, 8); }
+  function getEPerm(S) { return encodePerm(S.ep, 8); }           // U/D edges in positions 0..7 (G1 only)
+  function getSlicePerm(S) {                                     // slice edges in positions 8..11 -> 0..23
+    var p = [S.ep[8] - 8, S.ep[9] - 8, S.ep[10] - 8, S.ep[11] - 8];
+    return encodePerm(p, 4);
+  }
+
+  // Phase-2 move list (10 moves): U U2 U' D D2 D' R2 F2 L2 B2
+  var PH2_MOVES = [0, 1, 2, 9, 10, 11, 4, 7, 13, 16];
+  var PH2_FACES = [0, 0, 0, 3, 3, 3, 1, 2, 4, 5];
+
+  // ------------------------------------------------------------------
+  // Move tables (per coordinate)
+  // ------------------------------------------------------------------
+  var N_TWIST = 2187, N_FLIP = 2048, N_SLICE = 495;
+  var N_CPERM = 40320, N_EPERM = 40320, N_SPERM = 24;
+  var moveTwist, moveFlip, moveSlice, moveCPerm, moveEPerm, moveSPerm;
+
+  function buildMoveTables() {
+    var c, m, i, state;
+    // twist
+    moveTwist = new Uint16Array(N_TWIST * 18);
+    var co = new Array(8), sum, nc;
+    for (c = 0; c < N_TWIST; c++) {
+      sum = 0;
+      for (i = 0; i < 7; i++) { co[i] = Math.floor(c / Math.pow(3, i)) % 3; sum += co[i]; }
+      co[7] = (3 - sum % 3) % 3;
+      for (m = 0; m < 18; m++) {
+        var M = MOVE_CUBES[m], t = 0;
+        for (i = 0; i < 7; i++) { nc = (co[M.cp[i]] + M.co[i]) % 3; t += nc * Math.pow(3, i); }
+        moveTwist[c * 18 + m] = Math.round(t);
+      }
+    }
+    // flip
+    moveFlip = new Uint16Array(N_FLIP * 18);
+    var eo = new Array(12);
+    for (c = 0; c < N_FLIP; c++) {
+      sum = 0;
+      for (i = 0; i < 11; i++) { eo[i] = Math.floor(c / Math.pow(2, i)) % 2; sum += eo[i]; }
+      eo[11] = sum & 1;
+      for (m = 0; m < 18; m++) {
+        var M2 = MOVE_CUBES[m], fl = 0;
+        for (i = 0; i < 11; i++) fl += (eo[M2.ep[i]] ^ M2.eo[i]) * Math.pow(2, i);
+        moveFlip[c * 18 + m] = fl;
+      }
+    }
+    // slice (unordered combination)
+    moveSlice = new Uint16Array(N_SLICE * 18);
+    var combo = new Array(4);
+    for (c = 0; c < N_SLICE; c++) {
+      // decode combination
+      var idx = c, k = 4, p, pos = [];
+      for (p = 11; p >= 0 && k > 0; p--) {
+        if (idx >= C[p][k]) { idx -= C[p][k]; pos.unshift(p); k--; }
+      }
+      var ep = new Array(12), nextUD = 0;
+      for (i = 0; i < 12; i++) ep[i] = -1;
+      for (i = 0; i < 4; i++) ep[pos[i]] = 8 + i;
+      for (i = 0; i < 12; i++) if (ep[i] < 0) ep[i] = nextUD++;
+      for (m = 0; m < 18; m++) {
+        var M3 = MOVE_CUBES[m], newep = new Array(12), j;
+        for (j = 0; j < 12; j++) newep[j] = ep[M3.ep[j]];
+        var ps = [];
+        for (j = 0; j < 12; j++) if (newep[j] >= 8) ps.push(j);
+        moveSlice[c * 18 + m] = C[ps[0]][1] + C[ps[1]][2] + C[ps[2]][3] + C[ps[3]][4];
+      }
+    }
+    // phase-2 permutations
+    moveCPerm = new Uint16Array(N_CPERM * 10);
+    moveEPerm = new Uint16Array(N_EPERM * 10);
+    moveSPerm = new Uint8Array(N_SPERM * 10);
+    var perm = new Array(8), nperm = new Array(8), p4 = new Array(4), np4 = new Array(4);
+    for (c = 0; c < N_CPERM; c++) {
+      decodePerm(c, 8, perm);
+      for (m = 0; m < 10; m++) {
+        var M4 = MOVE_CUBES[PH2_MOVES[m]];
+        for (i = 0; i < 8; i++) nperm[i] = perm[M4.cp[i]];
+        moveCPerm[c * 10 + m] = encodePerm(nperm, 8);
+      }
+    }
+    for (c = 0; c < N_EPERM; c++) {
+      decodePerm(c, 8, perm);
+      for (m = 0; m < 10; m++) {
+        var M5 = MOVE_CUBES[PH2_MOVES[m]];
+        for (i = 0; i < 8; i++) nperm[i] = perm[M5.ep[i]];
+        moveEPerm[c * 10 + m] = encodePerm(nperm, 8);
+      }
+    }
+    for (c = 0; c < N_SPERM; c++) {
+      decodePerm(c, 4, p4);
+      for (m = 0; m < 10; m++) {
+        var M6 = MOVE_CUBES[PH2_MOVES[m]];
+        // pieces at slice positions 8..11 are 8+p4[0..3]
+        var s8 = [8 + p4[0], 8 + p4[1], 8 + p4[2], 8 + p4[3]]; // at positions 8..11
+        for (i = 8; i < 12; i++) {
+          var src = M6.ep[i], np;
+          np = (src >= 8) ? s8[src - 8] : -1;
+          np4[i - 8] = np - 8;
+        }
+        moveSPerm[c * 10 + m] = encodePerm(np4, 4);
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Pruning tables (BFS over joint coordinate spaces)
+  // ------------------------------------------------------------------
+  var prunTwistSlice, prunFlipSlice, prunSliceCPerm, prunSliceEPerm;
+
+  function bfsPruning(size, state0, transition) {
+    var dist = new Uint8Array(size);
+    dist.fill(255);
+    var queue = new Int32Array(size);
+    var qh = 0, qt = 0, d, cur, m, nxt;
+    queue[qt++] = state0;
+    dist[state0] = 0;
+    while (qh < qt) {
+      cur = queue[qh++];
+      d = dist[cur] + 1;
+      for (m = 0; m < transition.nMoves; m++) {
+        nxt = transition.step(cur, m);
+        if (dist[nxt] === 255) { dist[nxt] = d; queue[qt++] = nxt; }
+      }
+    }
+    return dist;
+  }
+
+  function buildPruningTables(onProgress) {
+    var t0 = Date.now();
+    // phase 1 goal: twist=0 (resp. flip=0) AND slice edges at positions {8,9,10,11}
+    // -> slice coordinate of the solved configuration is N_SLICE-1 = 494, not 0.
+    var SLICE_SOLVED = N_SLICE - 1;
+    prunTwistSlice = bfsPruning(N_TWIST * N_SLICE, 0 * N_SLICE + SLICE_SOLVED, {
+      nMoves: 18,
+      step: function (cur, m) {
+        var t = Math.floor(cur / N_SLICE), s = cur % N_SLICE;
+        return moveTwist[t * 18 + m] * N_SLICE + moveSlice[s * 18 + m];
+      }
+    });
+    if (onProgress) onProgress('twist-slice', 1, t0);
+    prunFlipSlice = bfsPruning(N_FLIP * N_SLICE, 0 * N_SLICE + SLICE_SOLVED, {
+      nMoves: 18,
+      step: function (cur, m) {
+        var f = Math.floor(cur / N_SLICE), s = cur % N_SLICE;
+        return moveFlip[f * 18 + m] * N_SLICE + moveSlice[s * 18 + m];
+      }
+    });
+    if (onProgress) onProgress('flip-slice', 2, t0);
+    // phase 2: joint (sPerm, cPerm) and (sPerm, ePerm); 10 moves
+    prunSliceCPerm = bfsPruning(N_SPERM * N_CPERM, 0, {
+      nMoves: 10,
+      step: function (cur, m) {
+        var s = Math.floor(cur / N_CPERM), cc = cur % N_CPERM;
+        return moveSPerm[s * 10 + m] * N_CPERM + moveCPerm[cc * 10 + m];
+      }
+    });
+    if (onProgress) onProgress('slice-cornerperm', 3, t0);
+    prunSliceEPerm = bfsPruning(N_SPERM * N_EPERM, 0, {
+      nMoves: 10,
+      step: function (cur, m) {
+        var s = Math.floor(cur / N_EPERM), ee = cur % N_EPERM;
+        return moveSPerm[s * 10 + m] * N_EPERM + moveEPerm[ee * 10 + m];
+      }
+    });
+    if (onProgress) onProgress('slice-edgeperm', 4, t0);
+  }
+
+  function initTables(onProgress) {
+    buildMoveTables();
+    buildPruningTables(onProgress);
+    ready = true;
+  }
+
+  var ready = false;
+
+  // ------------------------------------------------------------------
+  // IDA* search
+  // ------------------------------------------------------------------
+  var nodeCount = 0;
+  var deadline = 0;         // ms timestamp; 0 = no limit
+  var timedOut = false;
+
+  function hPhase1(twist, flip, slice) {
+    var a = prunTwistSlice[twist * N_SLICE + slice];
+    var b = prunFlipSlice[flip * N_SLICE + slice];
+    return a > b ? a : b;
+  }
+
+  // Enumerate phase-1 solutions of exactly `depth` moves (up to `cap` of them)
+  function phase1Solutions(twist, flip, slice, depth, cap) {
+    var sols = [];
+    var path = new Array(depth);
+    var hRoot = hPhase1(twist, flip, slice);
+    if (hRoot > depth) return sols;
+
+    function dfs(tw, fl, sl, remaining, prevFace) {
+      if (sols.length >= cap || timedOut) return;
+      nodeCount++;
+      if ((nodeCount & 8191) === 0 && deadline && Date.now() > deadline) { timedOut = true; return; }
+      var h = hPhase1(tw, fl, sl);
+      if (h > remaining) return;
+      if (remaining === 0) {
+        if (h === 0) sols.push(path.slice());
+        return;
+      }
+      var m, face, t2, f2, s2;
+      for (m = 0; m < 18; m++) {
+        face = m / 3 | 0;
+        if (!moveAllowed(prevFace, face)) continue;
+        t2 = moveTwist[tw * 18 + m];
+        f2 = moveFlip[fl * 18 + m];
+        s2 = moveSlice[sl * 18 + m];
+        if (hPhase1(t2, f2, s2) > remaining - 1) continue;
+        path[depth - remaining] = m;
+        dfs(t2, f2, s2, remaining - 1, face);
+        if (sols.length >= cap || timedOut) return;
+      }
+    }
+    dfs(twist, flip, slice, depth, -1);
+    return sols;
+  }
+
+  function phase2State(S) {
+    return {
+      c: getCPerm(S),
+      e: getEPerm(S),
+      s: getSlicePerm(S)
+    };
+  }
+
+  function hPhase2(st) {
+    var a = prunSliceCPerm[st.s * N_CPERM + st.c];
+    var b = prunSliceEPerm[st.s * N_EPERM + st.e];
+    return a > b ? a : b;
+  }
+
+  // Optimal phase-2 solve (iterative deepening); returns move array or null
+  function phase2Solve(st, nodeBudget) {
+    var hRoot = hPhase2(st);
+    if (hRoot === 255) return null; // state unreachable in pruning space -> should not happen
+    var maxDepth = 18;
+    var depth, nodesAtStart = nodeCount;
+    var path = new Array(maxDepth);
+    var found = null;
+    for (depth = hRoot; depth <= maxDepth; depth++) {
+      found = ph2dfs(st, depth, -1, path, 0);
+      if (found) return found.slice(0, depth);
+      if (nodeCount - nodesAtStart > nodeBudget) return null;
+      if (deadline && Date.now() > deadline) return null;
+    }
+    return null;
+  }
+
+  function ph2dfs(st, remaining, prevFaceIdx, path, level) {
+    nodeCount++;
+    if ((nodeCount & 8191) === 0 && deadline && Date.now() > deadline) { timedOut = true; return null; }
+    var h = hPhase2(st);
+    if (h > remaining) return null;
+    if (remaining === 0) return h === 0 ? path : null;
+    var mIdx, face, c2, e2, s2;
+    for (mIdx = 0; mIdx < 10; mIdx++) {
+      face = PH2_FACES[mIdx];
+      if (!moveAllowed(prevFaceIdx, face)) continue;
+      c2 = moveCPerm[st.c * 10 + mIdx];
+      e2 = moveEPerm[st.e * 10 + mIdx];
+      s2 = moveSPerm[st.s * 10 + mIdx];
+      var h2 = prunSliceCPerm[s2 * N_CPERM + c2];
+      var h3 = prunSliceEPerm[s2 * N_EPERM + e2];
+      var hh = h2 > h3 ? h2 : h3;
+      if (hh > remaining - 1) continue;
+      path[level] = PH2_MOVES[mIdx];
+      var r = ph2dfs({ c: c2, e: e2, s: s2 }, remaining - 1, face, path, level + 1);
+      if (r || timedOut) return r ? r : null;
+    }
+    return null;
+  }
+
+  // ------------------------------------------------------------------
+  // Top-level solve
+  // ------------------------------------------------------------------
+  var PH1_MAX_EXTRA = 5;      // search phase-1 lengths lb .. lb+5 (bound can be loose by ~3)
+  var PH1_SOLUTION_CAP = 256; // max phase-1 solutions per depth level
+  var NODE_BUDGET = 24e6;     // per phase-2 call
+  var TIME_BUDGET_MS = 4000;  // overall soft limit
+
+  function solve(facelets, options) {
+    options = options || {};
+    if (!ready) throw new Error('Solver tables are not initialized; call initTables() first.');
+    var S = faceletsToCubie(facelets);
+    validateState(S);
+    if (isSolved(S)) return { moves: [], phase1: [], phase2: [], timeMs: 0, nodes: 0 };
+
+    nodeCount = 0; timedOut = false;
+    deadline = options.timeBudgetMs ? Date.now() + options.timeBudgetMs : Date.now() + TIME_BUDGET_MS;
+
+    var twist = getTwist(S), flip = getFlip(S), slice = getSliceComb(S);
+    var lb = hPhase1(twist, flip, slice);
+    var t0 = Date.now();
+    var best = null;
+
+    for (var extra = 0; extra <= PH1_MAX_EXTRA; extra++) {
+      var d1 = lb + extra;
+      if (d1 > 12) break; // phase-1 optimum never exceeds 12
+      var sols = phase1Solutions(twist, flip, slice, d1, PH1_SOLUTION_CAP);
+      for (var k = 0; k < sols.length; k++) {
+        var W = S;
+        for (var q = 0; q < sols[k].length; q++) W = applyMoveToState(W, MOVE_CUBES[sols[k][q]]);
+        var st2 = phase2State(W);
+        var d2sol = phase2Solve(st2, NODE_BUDGET);
+        if (d2sol) {
+          var total = d1 + d2sol.length;
+          if (!best || total < best.total) {
+            best = { total: total, p1: sols[k].slice(), p2: d2sol.slice() };
+          }
+          if (best.total <= 21) extra = PH1_MAX_EXTRA + 1; // good enough, stop
+        }
+        if (timedOut) break;
+      }
+      if (timedOut) break;
+      if (best && best.total <= 22) break;          // near-optimal, stop deepening
+      if (best && extra >= 2) break;                // diminishing returns
+    }
+
+    if (!best) throw new Error('Search failed within the time budget; please try again.');
+    var moves = best.p1.concat(best.p2).map(function (m) { return MOVE_NAMES[m]; });
+    return {
+      moves: moves,
+      phase1: best.p1.map(function (m) { return MOVE_NAMES[m]; }),
+      phase2: best.p2.map(function (m) { return MOVE_NAMES[m]; }),
+      timeMs: Date.now() - t0,
+      nodes: nodeCount
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // Helpers for the UI / tests
+  // ------------------------------------------------------------------
+  function parseMoves(str) {
+    return str.trim().split(/[\s,]+/).filter(Boolean).map(function (tok) {
+      var i = MOVE_NAMES.indexOf(tok);
+      if (i < 0) throw new Error('Unknown move "' + tok + '".');
+      return i;
+    });
+  }
+  function movesToFacelets(startFacelets, moveIndices) {
+    var S = faceletsToCubie(startFacelets);
+    for (var i = 0; i < moveIndices.length; i++) S = applyMoveToState(S, MOVE_CUBES[moveIndices[i]]);
+    return cubieToFacelets(S);
+  }
+  function applyMoves(S, moveIndices) {
+    var T = { cp: S.cp.slice(), co: S.co.slice(), ep: S.ep.slice(), eo: S.eo.slice() };
+    for (var i = 0; i < moveIndices.length; i++) T = applyMoveToState(T, MOVE_CUBES[moveIndices[i]]);
+    return T;
+  }
+  function randomScramble(n) {
+    n = n || 25;
+    var last = -1, last2 = -1, out = [];
+    while (out.length < n) {
+      var m = Math.floor(Math.random() * 18);
+      var f = m / 3 | 0;
+      if (f === last) continue;
+      if (last >= 0 && OPPOSITE[f] === last && f === last2) continue; // avoid A B A on opposite faces
+      out.push(m); last2 = last; last = f;
+    }
+    return out.map(function (m) { return MOVE_NAMES[m]; }).join(' ');
+  }
+
+  var api = {
+    initTables: initTables,
+    solve: solve,
+    faceletsToCubie: faceletsToCubie,
+    cubieToFacelets: cubieToFacelets,
+    validateState: validateState,
+    isSolved: isSolved,
+    applyMoves: applyMoves,
+    movesToFacelets: movesToFacelets,
+    parseMoves: parseMoves,
+    randomScramble: randomScramble,
+    MOVE_NAMES: MOVE_NAMES,
+    SOLVED: cubieToFacelets(IDENTITY),
+    CORNER_FACELET: CORNER_FACELET, EDGE_FACELET: EDGE_FACELET,
+    CORNER_COLOR: CORNER_COLOR, EDGE_COLOR: EDGE_COLOR,
+    getTwist: getTwist, getFlip: getFlip, getSliceComb: getSliceComb,
+    getCPerm: getCPerm, getEPerm: getEPerm, getSlicePerm: getSlicePerm,
+    permParity: permParity,
+    _internals: {
+      MOVE_CUBES: MOVE_CUBES, applyMoveToState: applyMoveToState, IDENTITY: IDENTITY,
+      isReady: function () { return ready; },
+      hPhase1: hPhase1,
+      phase1Solutions: phase1Solutions,
+      phase2State: phase2State,
+      phase2Solve: phase2Solve,
+      hPhase2: hPhase2,
+      getPrunSizes: function () {
+        return [prunTwistSlice.length, prunFlipSlice.length, prunSliceCPerm.length, prunSliceEPerm.length];
+      },
+      countReachable: function () {
+        var c1 = 0, i;
+        for (i = 0; i < prunTwistSlice.length; i++) if (prunTwistSlice[i] !== 255) c1++;
+        var c2 = 0;
+        for (i = 0; i < prunFlipSlice.length; i++) if (prunFlipSlice[i] !== 255) c2++;
+        var c3 = 0;
+        for (i = 0; i < prunSliceCPerm.length; i++) if (prunSliceCPerm[i] !== 255) c3++;
+        var c4 = 0;
+        for (i = 0; i < prunSliceEPerm.length; i++) if (prunSliceEPerm[i] !== 255) c4++;
+        return { ts: c1, fs: c2, sc: c3, se: c4 };
+      }
+    }
+  };
+
+  // Web-worker glue: when this file is loaded inside a Blob worker it serves requests.
+  if (typeof self !== 'undefined' && typeof importScripts === 'function' && typeof module === 'undefined') {
+    self.onmessage = function (e) {
+      var data = e.data;
+      try {
+        if (data.type === 'init') {
+          var t0 = Date.now();
+          initTables(function (stage, step, t0) {
+            self.postMessage({ type: 'progress', stage: stage, step: step });
+          });
+          self.postMessage({ type: 'ready', ms: Date.now() - t0 });
+        } else if (data.type === 'solve') {
+          var r = solve(data.facelets, { timeBudgetMs: data.timeBudgetMs });
+          self.postMessage({ type: 'result', id: data.id, result: r });
+        }
+      } catch (err) {
+        self.postMessage({ type: 'error', id: data && data.id, message: err.message });
+      }
+    };
+  }
+
+  return api;
+});
+
+</script>
+
+<!-- Same source, kept inert as the Web Worker payload -->
+<script type="text/plain" id="solver-src">
+/*
+ * solver_core.js — Rubik's Cube engine + Kociemba two-phase solver (pure JS, no deps).
+ *
+ * Conventions
+ * -----------
+ * Corners  : 0 URF, 1 UFL, 2 ULB, 3 UBR, 4 DFR, 5 DLF, 6 DBL, 7 DRB
+ * Edges    : 0 UR, 1 UF, 2 UL, 3 UB, 4 DR, 5 DF, 6 DL, 7 DB, 8 FR, 9 FL, 10 BL, 11 BR
+ * Colors   : 0 U, 1 R, 2 F, 3 D, 4 L, 5 B   (face letters used in facelet strings)
+ * State    : piece-at-position.  cp[i] = corner piece located at position i,
+ *            co[i] = orientation of that piece (0..2), likewise ep/eo for edges.
+ * Move M   : applying M to a state S gives  S'[i] = S[M[i]] (piece-at-position compose),
+ *            co: S'.co[i] = (S.co[M.cp[i]] + M.co[i]) % 3, eo: xor.
+ * Facelets : 54 chars in order U1..U9 R1..R9 F1..F9 D1..D9 L1..L9 B1..B9 (Kociemba layout).
+ */
+(function (root, factory) {
+  /* istanbul ignore next */
+  if (typeof module === 'object' && module.exports) module.exports = factory();
+  else root.CubeSolver = factory();
+})(typeof self !== 'undefined' ? self : this, function () {
+  'use strict';
+
+  // ------------------------------------------------------------------
+  // Move definitions (verified against orientation/permutation invariants)
+  // ------------------------------------------------------------------
+  var MOVES = [
+    // U
+    { cp: [3, 0, 1, 2, 4, 5, 6, 7], co: [0, 0, 0, 0, 0, 0, 0, 0],
+      ep: [3, 0, 1, 2, 4, 5, 6, 7, 8, 9, 10, 11], eo: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+    // R
+    { cp: [4, 1, 2, 0, 7, 5, 6, 3], co: [2, 0, 0, 1, 1, 0, 0, 2],
+      ep: [8, 1, 2, 3, 11, 5, 6, 7, 4, 9, 10, 0], eo: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+    // F
+    { cp: [1, 5, 2, 3, 0, 4, 6, 7], co: [1, 2, 0, 0, 2, 1, 0, 0],
+      ep: [0, 9, 2, 3, 4, 8, 6, 7, 1, 5, 10, 11], eo: [0, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0] },
+    // D
+    { cp: [0, 1, 2, 3, 5, 6, 7, 4], co: [0, 0, 0, 0, 0, 0, 0, 0],
+      ep: [0, 1, 2, 3, 5, 6, 7, 4, 8, 9, 10, 11], eo: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+    // L
+    { cp: [0, 2, 6, 3, 4, 1, 5, 7], co: [0, 1, 2, 0, 0, 2, 1, 0],
+      ep: [0, 1, 10, 3, 4, 5, 9, 7, 8, 2, 6, 11], eo: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+    // B
+    { cp: [0, 1, 3, 7, 4, 5, 2, 6], co: [0, 0, 1, 2, 0, 0, 2, 1],
+      ep: [0, 1, 2, 11, 4, 5, 6, 10, 8, 9, 3, 7], eo: [0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1] }
+  ];
+
+  var MOVE_NAMES = ['U', 'U2', "U'", 'R', 'R2', "R'", 'F', 'F2', "F'",
+    'D', 'D2', "D'", 'L', 'L2', "L'", 'B', 'B2', "B'"];
+
+  // 18 move cubes: m = face*3 + power  (power 0 = CW, 1 = half, 2 = CCW)
+  var MOVE_CUBES = [];
+  var IDENTITY = { cp: [0, 1, 2, 3, 4, 5, 6, 7], co: [0, 0, 0, 0, 0, 0, 0, 0],
+    ep: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], eo: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] };
+
+  function applyMoveToState(S, M) {
+    var cp = new Array(8), co = new Array(8), ep = new Array(12), eo = new Array(12), i, mi;
+    for (i = 0; i < 8; i++) { mi = M.cp[i]; cp[i] = S.cp[mi]; co[i] = (S.co[mi] + M.co[i]) % 3; }
+    for (i = 0; i < 12; i++) { mi = M.ep[i]; ep[i] = S.ep[mi]; eo[i] = S.eo[mi] ^ M.eo[i]; }
+    return { cp: cp, co: co, ep: ep, eo: eo };
+  }
+
+  (function buildMoveCubes() {
+    var f, p, cur, base;
+    for (f = 0; f < 6; f++) {
+      base = MOVES[f]; cur = IDENTITY;
+      for (p = 0; p < 3; p++) {
+        cur = applyMoveToState(cur, base);
+        MOVE_CUBES[f * 3 + p] = cur;
+      }
+    }
+  })();
+
+  // Face constraints for canonical move ordering (no same face, opposite faces ordered)
+  var OPPOSITE = [3, 4, 5, 0, 1, 2];
+
+  function moveAllowed(prevFace, face) {
+    if (prevFace < 0) return true;
+    if (face === prevFace) return false;
+    if (OPPOSITE[face] === prevFace && face < prevFace) return false;
+    return true;
+  }
+
+  // ------------------------------------------------------------------
+  // Facelet <-> cubie conversion (Kociemba layout)
+  // ------------------------------------------------------------------
+  var CORNER_FACELET = [
+    [8, 9, 20], [6, 18, 38], [0, 36, 47], [2, 45, 11],
+    [29, 26, 15], [27, 44, 24], [33, 53, 42], [35, 17, 51]
+  ];
+  var EDGE_FACELET = [
+    [5, 10], [7, 19], [3, 37], [1, 46], [32, 16], [28, 25], [30, 43], [34, 52],
+    [23, 12], [21, 39], [50, 41], [48, 14]
+  ];
+  var CORNER_COLOR = [
+    [0, 1, 2], [0, 2, 4], [0, 4, 5], [0, 5, 1],
+    [3, 2, 1], [3, 4, 2], [3, 5, 4], [3, 1, 5]
+  ];
+  var EDGE_COLOR = [
+    [0, 1], [0, 2], [0, 4], [0, 5], [3, 1], [3, 2], [3, 4], [3, 5],
+    [2, 1], [2, 4], [5, 4], [5, 1]
+  ];
+
+  function faceletsToCubie(s) {
+    if (typeof s !== 'string' || s.length !== 54) throw new Error('Facelet string must be exactly 54 characters.');
+    var f = new Array(54), i, j, ori;
+    for (i = 0; i < 54; i++) {
+      var c = s.charAt(i);
+      var v = 'URFDLB'.indexOf(c);
+      if (v < 0) throw new Error('Invalid character "' + c + '" at position ' + (i + 1) + ' (expected U, R, F, D, L or B).');
+      f[i] = v;
+    }
+    var count = [0, 0, 0, 0, 0, 0];
+    for (i = 0; i < 54; i++) count[f[i]]++;
+    for (i = 0; i < 6; i++) if (count[i] !== 9) throw new Error('Color ' + 'URFDLB'.charAt(i) + ' appears ' + count[i] + ' times (expected 9).');
+    for (i = 0; i < 6; i++) if (f[i * 9 + 4] !== i) throw new Error('Center of face ' + 'URFDLB'.charAt(i) + ' is wrong (state uses a rotated color scheme).');
+
+    var cp = new Array(8), co = new Array(8), ep = new Array(12), eo = new Array(12);
+    for (i = 0; i < 8; i++) {
+      for (ori = 0; ori < 3; ori++) if (f[CORNER_FACELET[i][ori]] === 0 || f[CORNER_FACELET[i][ori]] === 3) break;
+      if (ori > 2) throw new Error('Corner ' + i + ': no U/D colored sticker found.');
+      var col1 = f[CORNER_FACELET[i][(ori + 1) % 3]];
+      var col2 = f[CORNER_FACELET[i][(ori + 2) % 3]];
+      for (j = 0; j < 8; j++) {
+        if (col1 === CORNER_COLOR[j][1] && col2 === CORNER_COLOR[j][2]) { cp[i] = j; co[i] = ori % 3; break; }
+      }
+      if (j === 8) throw new Error('Corner ' + i + ' has an impossible color combination.');
+    }
+    for (i = 0; i < 12; i++) {
+      var found = false;
+      for (j = 0; j < 12; j++) {
+        if (f[EDGE_FACELET[i][0]] === EDGE_COLOR[j][0] && f[EDGE_FACELET[i][1]] === EDGE_COLOR[j][1]) { ep[i] = j; eo[i] = 0; found = true; break; }
+        if (f[EDGE_FACELET[i][0]] === EDGE_COLOR[j][1] && f[EDGE_FACELET[i][1]] === EDGE_COLOR[j][0]) { ep[i] = j; eo[i] = 1; found = true; break; }
+      }
+      if (!found) throw new Error('Edge ' + i + ' has an impossible color combination.');
+    }
+    return { cp: cp, co: co, ep: ep, eo: eo };
+  }
+
+  function cubieToFacelets(S) {
+    var out = new Array(54), i, s;
+    for (i = 0; i < 6; i++) out[i * 9 + 4] = i; // face centers are fixed
+    for (i = 0; i < 8; i++) {
+      for (s = 0; s < 3; s++) out[CORNER_FACELET[i][s]] = CORNER_COLOR[S.cp[i]][(s + 3 - S.co[i]) % 3];
+    }
+    for (i = 0; i < 12; i++) {
+      for (s = 0; s < 2; s++) out[EDGE_FACELET[i][s]] = EDGE_COLOR[S.ep[i]][(s + S.eo[i]) % 2];
+    }
+    return out.map(function (v) { return 'URFDLB'.charAt(v); }).join('');
+  }
+
+  function isSolved(S) {
+    var i;
+    for (i = 0; i < 8; i++) if (S.cp[i] !== i || S.co[i] !== 0) return false;
+    for (i = 0; i < 12; i++) if (S.ep[i] !== i || S.eo[i] !== 0) return false;
+    return true;
+  }
+
+  function permParity(p, n) {
+    var parity = 0, i, j;
+    for (i = 0; i < n; i++) for (j = i + 1; j < n; j++) if (p[i] > p[j]) parity ^= 1;
+    return parity;
+  }
+
+  // Deep group-theoretic validation used before solving (see paper, Prop. invariants)
+  function validateState(S) {
+    var i, sumT = 0, sumF = 0;
+    for (i = 0; i < 8; i++) sumT += S.co[i];
+    if (sumT % 3 !== 0) throw new Error('Invalid cube: corner twist is impossible (sum of twists \u2260 0 mod 3).');
+    for (i = 0; i < 12; i++) sumF += S.eo[i];
+    if (sumF % 2 !== 0) throw new Error('Invalid cube: edge flip is impossible (odd number of flipped edges).');
+    if (permParity(S.cp, 8) !== permParity(S.ep, 12)) throw new Error('Invalid cube: corner and edge permutations have different parity.');
+    return true;
+  }
+
+  // ------------------------------------------------------------------
+  // Coordinates
+  // ------------------------------------------------------------------
+  var C = (function binomial() {
+    var t = [], n, k;
+    for (n = 0; n <= 12; n++) { t[n] = []; for (k = 0; k <= 12; k++) t[n][k] = (k === 0 || k === n) ? 1 : (k > n ? 0 : t[n - 1][k - 1] + t[n - 1][k]); }
+    return t;
+  })();
+
+  function getTwist(S) { var t = 0, i; for (i = 0; i < 7; i++) t += S.co[i] * Math.pow(3, i); return Math.round(t); }
+  function getFlip(S) { var f = 0, i; for (i = 0; i < 11; i++) f += S.eo[i] * Math.pow(2, i); return f; }
+  function getSliceComb(S) { // unordered positions of the 4 slice edges -> 0..494
+    var pos = [], i;
+    for (i = 0; i < 12; i++) if (S.ep[i] >= 8) pos.push(i);
+    return C[pos[0]][1] + C[pos[1]][2] + C[pos[2]][3] + C[pos[3]][4];
+  }
+  function encodePerm(p, n) {
+    var idx = 0, i, j, r;
+    for (i = 0; i < n - 1; i++) {
+      r = 0;
+      for (j = i + 1; j < n; j++) if (p[j] < p[i]) r++;
+      idx = idx * (n - i) + r;
+    }
+    return idx;
+  }
+  function decodePerm(idx, n, out) {
+    var avail = [], i, r;
+    for (i = 0; i < n; i++) avail[i] = i;
+    var rr = new Array(n);
+    for (i = n - 2; i >= 0; i--) { rr[i] = idx % (n - i); idx = (idx - rr[i]) / (n - i); }
+    for (i = 0; i < n - 1; i++) { out[i] = avail[rr[i]]; avail.splice(rr[i], 1); }
+    out[n - 1] = avail[0];
+  }
+  function getCPerm(S) { return encodePerm(S.cp, 8); }
+  function getEPerm(S) { return encodePerm(S.ep, 8); }           // U/D edges in positions 0..7 (G1 only)
+  function getSlicePerm(S) {                                     // slice edges in positions 8..11 -> 0..23
+    var p = [S.ep[8] - 8, S.ep[9] - 8, S.ep[10] - 8, S.ep[11] - 8];
+    return encodePerm(p, 4);
+  }
+
+  // Phase-2 move list (10 moves): U U2 U' D D2 D' R2 F2 L2 B2
+  var PH2_MOVES = [0, 1, 2, 9, 10, 11, 4, 7, 13, 16];
+  var PH2_FACES = [0, 0, 0, 3, 3, 3, 1, 2, 4, 5];
+
+  // ------------------------------------------------------------------
+  // Move tables (per coordinate)
+  // ------------------------------------------------------------------
+  var N_TWIST = 2187, N_FLIP = 2048, N_SLICE = 495;
+  var N_CPERM = 40320, N_EPERM = 40320, N_SPERM = 24;
+  var moveTwist, moveFlip, moveSlice, moveCPerm, moveEPerm, moveSPerm;
+
+  function buildMoveTables() {
+    var c, m, i, state;
+    // twist
+    moveTwist = new Uint16Array(N_TWIST * 18);
+    var co = new Array(8), sum, nc;
+    for (c = 0; c < N_TWIST; c++) {
+      sum = 0;
+      for (i = 0; i < 7; i++) { co[i] = Math.floor(c / Math.pow(3, i)) % 3; sum += co[i]; }
+      co[7] = (3 - sum % 3) % 3;
+      for (m = 0; m < 18; m++) {
+        var M = MOVE_CUBES[m], t = 0;
+        for (i = 0; i < 7; i++) { nc = (co[M.cp[i]] + M.co[i]) % 3; t += nc * Math.pow(3, i); }
+        moveTwist[c * 18 + m] = Math.round(t);
+      }
+    }
+    // flip
+    moveFlip = new Uint16Array(N_FLIP * 18);
+    var eo = new Array(12);
+    for (c = 0; c < N_FLIP; c++) {
+      sum = 0;
+      for (i = 0; i < 11; i++) { eo[i] = Math.floor(c / Math.pow(2, i)) % 2; sum += eo[i]; }
+      eo[11] = sum & 1;
+      for (m = 0; m < 18; m++) {
+        var M2 = MOVE_CUBES[m], fl = 0;
+        for (i = 0; i < 11; i++) fl += (eo[M2.ep[i]] ^ M2.eo[i]) * Math.pow(2, i);
+        moveFlip[c * 18 + m] = fl;
+      }
+    }
+    // slice (unordered combination)
+    moveSlice = new Uint16Array(N_SLICE * 18);
+    var combo = new Array(4);
+    for (c = 0; c < N_SLICE; c++) {
+      // decode combination
+      var idx = c, k = 4, p, pos = [];
+      for (p = 11; p >= 0 && k > 0; p--) {
+        if (idx >= C[p][k]) { idx -= C[p][k]; pos.unshift(p); k--; }
+      }
+      var ep = new Array(12), nextUD = 0;
+      for (i = 0; i < 12; i++) ep[i] = -1;
+      for (i = 0; i < 4; i++) ep[pos[i]] = 8 + i;
+      for (i = 0; i < 12; i++) if (ep[i] < 0) ep[i] = nextUD++;
+      for (m = 0; m < 18; m++) {
+        var M3 = MOVE_CUBES[m], newep = new Array(12), j;
+        for (j = 0; j < 12; j++) newep[j] = ep[M3.ep[j]];
+        var ps = [];
+        for (j = 0; j < 12; j++) if (newep[j] >= 8) ps.push(j);
+        moveSlice[c * 18 + m] = C[ps[0]][1] + C[ps[1]][2] + C[ps[2]][3] + C[ps[3]][4];
+      }
+    }
+    // phase-2 permutations
+    moveCPerm = new Uint16Array(N_CPERM * 10);
+    moveEPerm = new Uint16Array(N_EPERM * 10);
+    moveSPerm = new Uint8Array(N_SPERM * 10);
+    var perm = new Array(8), nperm = new Array(8), p4 = new Array(4), np4 = new Array(4);
+    for (c = 0; c < N_CPERM; c++) {
+      decodePerm(c, 8, perm);
+      for (m = 0; m < 10; m++) {
+        var M4 = MOVE_CUBES[PH2_MOVES[m]];
+        for (i = 0; i < 8; i++) nperm[i] = perm[M4.cp[i]];
+        moveCPerm[c * 10 + m] = encodePerm(nperm, 8);
+      }
+    }
+    for (c = 0; c < N_EPERM; c++) {
+      decodePerm(c, 8, perm);
+      for (m = 0; m < 10; m++) {
+        var M5 = MOVE_CUBES[PH2_MOVES[m]];
+        for (i = 0; i < 8; i++) nperm[i] = perm[M5.ep[i]];
+        moveEPerm[c * 10 + m] = encodePerm(nperm, 8);
+      }
+    }
+    for (c = 0; c < N_SPERM; c++) {
+      decodePerm(c, 4, p4);
+      for (m = 0; m < 10; m++) {
+        var M6 = MOVE_CUBES[PH2_MOVES[m]];
+        // pieces at slice positions 8..11 are 8+p4[0..3]
+        var s8 = [8 + p4[0], 8 + p4[1], 8 + p4[2], 8 + p4[3]]; // at positions 8..11
+        for (i = 8; i < 12; i++) {
+          var src = M6.ep[i], np;
+          np = (src >= 8) ? s8[src - 8] : -1;
+          np4[i - 8] = np - 8;
+        }
+        moveSPerm[c * 10 + m] = encodePerm(np4, 4);
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Pruning tables (BFS over joint coordinate spaces)
+  // ------------------------------------------------------------------
+  var prunTwistSlice, prunFlipSlice, prunSliceCPerm, prunSliceEPerm;
+
+  function bfsPruning(size, state0, transition) {
+    var dist = new Uint8Array(size);
+    dist.fill(255);
+    var queue = new Int32Array(size);
+    var qh = 0, qt = 0, d, cur, m, nxt;
+    queue[qt++] = state0;
+    dist[state0] = 0;
+    while (qh < qt) {
+      cur = queue[qh++];
+      d = dist[cur] + 1;
+      for (m = 0; m < transition.nMoves; m++) {
+        nxt = transition.step(cur, m);
+        if (dist[nxt] === 255) { dist[nxt] = d; queue[qt++] = nxt; }
+      }
+    }
+    return dist;
+  }
+
+  function buildPruningTables(onProgress) {
+    var t0 = Date.now();
+    // phase 1 goal: twist=0 (resp. flip=0) AND slice edges at positions {8,9,10,11}
+    // -> slice coordinate of the solved configuration is N_SLICE-1 = 494, not 0.
+    var SLICE_SOLVED = N_SLICE - 1;
+    prunTwistSlice = bfsPruning(N_TWIST * N_SLICE, 0 * N_SLICE + SLICE_SOLVED, {
+      nMoves: 18,
+      step: function (cur, m) {
+        var t = Math.floor(cur / N_SLICE), s = cur % N_SLICE;
+        return moveTwist[t * 18 + m] * N_SLICE + moveSlice[s * 18 + m];
+      }
+    });
+    if (onProgress) onProgress('twist-slice', 1, t0);
+    prunFlipSlice = bfsPruning(N_FLIP * N_SLICE, 0 * N_SLICE + SLICE_SOLVED, {
+      nMoves: 18,
+      step: function (cur, m) {
+        var f = Math.floor(cur / N_SLICE), s = cur % N_SLICE;
+        return moveFlip[f * 18 + m] * N_SLICE + moveSlice[s * 18 + m];
+      }
+    });
+    if (onProgress) onProgress('flip-slice', 2, t0);
+    // phase 2: joint (sPerm, cPerm) and (sPerm, ePerm); 10 moves
+    prunSliceCPerm = bfsPruning(N_SPERM * N_CPERM, 0, {
+      nMoves: 10,
+      step: function (cur, m) {
+        var s = Math.floor(cur / N_CPERM), cc = cur % N_CPERM;
+        return moveSPerm[s * 10 + m] * N_CPERM + moveCPerm[cc * 10 + m];
+      }
+    });
+    if (onProgress) onProgress('slice-cornerperm', 3, t0);
+    prunSliceEPerm = bfsPruning(N_SPERM * N_EPERM, 0, {
+      nMoves: 10,
+      step: function (cur, m) {
+        var s = Math.floor(cur / N_EPERM), ee = cur % N_EPERM;
+        return moveSPerm[s * 10 + m] * N_EPERM + moveEPerm[ee * 10 + m];
+      }
+    });
+    if (onProgress) onProgress('slice-edgeperm', 4, t0);
+  }
+
+  function initTables(onProgress) {
+    buildMoveTables();
+    buildPruningTables(onProgress);
+    ready = true;
+  }
+
+  var ready = false;
+
+  // ------------------------------------------------------------------
+  // IDA* search
+  // ------------------------------------------------------------------
+  var nodeCount = 0;
+  var deadline = 0;         // ms timestamp; 0 = no limit
+  var timedOut = false;
+
+  function hPhase1(twist, flip, slice) {
+    var a = prunTwistSlice[twist * N_SLICE + slice];
+    var b = prunFlipSlice[flip * N_SLICE + slice];
+    return a > b ? a : b;
+  }
+
+  // Enumerate phase-1 solutions of exactly `depth` moves (up to `cap` of them)
+  function phase1Solutions(twist, flip, slice, depth, cap) {
+    var sols = [];
+    var path = new Array(depth);
+    var hRoot = hPhase1(twist, flip, slice);
+    if (hRoot > depth) return sols;
+
+    function dfs(tw, fl, sl, remaining, prevFace) {
+      if (sols.length >= cap || timedOut) return;
+      nodeCount++;
+      if ((nodeCount & 8191) === 0 && deadline && Date.now() > deadline) { timedOut = true; return; }
+      var h = hPhase1(tw, fl, sl);
+      if (h > remaining) return;
+      if (remaining === 0) {
+        if (h === 0) sols.push(path.slice());
+        return;
+      }
+      var m, face, t2, f2, s2;
+      for (m = 0; m < 18; m++) {
+        face = m / 3 | 0;
+        if (!moveAllowed(prevFace, face)) continue;
+        t2 = moveTwist[tw * 18 + m];
+        f2 = moveFlip[fl * 18 + m];
+        s2 = moveSlice[sl * 18 + m];
+        if (hPhase1(t2, f2, s2) > remaining - 1) continue;
+        path[depth - remaining] = m;
+        dfs(t2, f2, s2, remaining - 1, face);
+        if (sols.length >= cap || timedOut) return;
+      }
+    }
+    dfs(twist, flip, slice, depth, -1);
+    return sols;
+  }
+
+  function phase2State(S) {
+    return {
+      c: getCPerm(S),
+      e: getEPerm(S),
+      s: getSlicePerm(S)
+    };
+  }
+
+  function hPhase2(st) {
+    var a = prunSliceCPerm[st.s * N_CPERM + st.c];
+    var b = prunSliceEPerm[st.s * N_EPERM + st.e];
+    return a > b ? a : b;
+  }
+
+  // Optimal phase-2 solve (iterative deepening); returns move array or null
+  function phase2Solve(st, nodeBudget) {
+    var hRoot = hPhase2(st);
+    if (hRoot === 255) return null; // state unreachable in pruning space -> should not happen
+    var maxDepth = 18;
+    var depth, nodesAtStart = nodeCount;
+    var path = new Array(maxDepth);
+    var found = null;
+    for (depth = hRoot; depth <= maxDepth; depth++) {
+      found = ph2dfs(st, depth, -1, path, 0);
+      if (found) return found.slice(0, depth);
+      if (nodeCount - nodesAtStart > nodeBudget) return null;
+      if (deadline && Date.now() > deadline) return null;
+    }
+    return null;
+  }
+
+  function ph2dfs(st, remaining, prevFaceIdx, path, level) {
+    nodeCount++;
+    if ((nodeCount & 8191) === 0 && deadline && Date.now() > deadline) { timedOut = true; return null; }
+    var h = hPhase2(st);
+    if (h > remaining) return null;
+    if (remaining === 0) return h === 0 ? path : null;
+    var mIdx, face, c2, e2, s2;
+    for (mIdx = 0; mIdx < 10; mIdx++) {
+      face = PH2_FACES[mIdx];
+      if (!moveAllowed(prevFaceIdx, face)) continue;
+      c2 = moveCPerm[st.c * 10 + mIdx];
+      e2 = moveEPerm[st.e * 10 + mIdx];
+      s2 = moveSPerm[st.s * 10 + mIdx];
+      var h2 = prunSliceCPerm[s2 * N_CPERM + c2];
+      var h3 = prunSliceEPerm[s2 * N_EPERM + e2];
+      var hh = h2 > h3 ? h2 : h3;
+      if (hh > remaining - 1) continue;
+      path[level] = PH2_MOVES[mIdx];
+      var r = ph2dfs({ c: c2, e: e2, s: s2 }, remaining - 1, face, path, level + 1);
+      if (r || timedOut) return r ? r : null;
+    }
+    return null;
+  }
+
+  // ------------------------------------------------------------------
+  // Top-level solve
+  // ------------------------------------------------------------------
+  var PH1_MAX_EXTRA = 5;      // search phase-1 lengths lb .. lb+5 (bound can be loose by ~3)
+  var PH1_SOLUTION_CAP = 256; // max phase-1 solutions per depth level
+  var NODE_BUDGET = 24e6;     // per phase-2 call
+  var TIME_BUDGET_MS = 4000;  // overall soft limit
+
+  function solve(facelets, options) {
+    options = options || {};
+    if (!ready) throw new Error('Solver tables are not initialized; call initTables() first.');
+    var S = faceletsToCubie(facelets);
+    validateState(S);
+    if (isSolved(S)) return { moves: [], phase1: [], phase2: [], timeMs: 0, nodes: 0 };
+
+    nodeCount = 0; timedOut = false;
+    deadline = options.timeBudgetMs ? Date.now() + options.timeBudgetMs : Date.now() + TIME_BUDGET_MS;
+
+    var twist = getTwist(S), flip = getFlip(S), slice = getSliceComb(S);
+    var lb = hPhase1(twist, flip, slice);
+    var t0 = Date.now();
+    var best = null;
+
+    for (var extra = 0; extra <= PH1_MAX_EXTRA; extra++) {
+      var d1 = lb + extra;
+      if (d1 > 12) break; // phase-1 optimum never exceeds 12
+      var sols = phase1Solutions(twist, flip, slice, d1, PH1_SOLUTION_CAP);
+      for (var k = 0; k < sols.length; k++) {
+        var W = S;
+        for (var q = 0; q < sols[k].length; q++) W = applyMoveToState(W, MOVE_CUBES[sols[k][q]]);
+        var st2 = phase2State(W);
+        var d2sol = phase2Solve(st2, NODE_BUDGET);
+        if (d2sol) {
+          var total = d1 + d2sol.length;
+          if (!best || total < best.total) {
+            best = { total: total, p1: sols[k].slice(), p2: d2sol.slice() };
+          }
+          if (best.total <= 21) extra = PH1_MAX_EXTRA + 1; // good enough, stop
+        }
+        if (timedOut) break;
+      }
+      if (timedOut) break;
+      if (best && best.total <= 22) break;          // near-optimal, stop deepening
+      if (best && extra >= 2) break;                // diminishing returns
+    }
+
+    if (!best) throw new Error('Search failed within the time budget; please try again.');
+    var moves = best.p1.concat(best.p2).map(function (m) { return MOVE_NAMES[m]; });
+    return {
+      moves: moves,
+      phase1: best.p1.map(function (m) { return MOVE_NAMES[m]; }),
+      phase2: best.p2.map(function (m) { return MOVE_NAMES[m]; }),
+      timeMs: Date.now() - t0,
+      nodes: nodeCount
+    };
+  }
+
+  // ------------------------------------------------------------------
+  // Helpers for the UI / tests
+  // ------------------------------------------------------------------
+  function parseMoves(str) {
+    return str.trim().split(/[\s,]+/).filter(Boolean).map(function (tok) {
+      var i = MOVE_NAMES.indexOf(tok);
+      if (i < 0) throw new Error('Unknown move "' + tok + '".');
+      return i;
+    });
+  }
+  function movesToFacelets(startFacelets, moveIndices) {
+    var S = faceletsToCubie(startFacelets);
+    for (var i = 0; i < moveIndices.length; i++) S = applyMoveToState(S, MOVE_CUBES[moveIndices[i]]);
+    return cubieToFacelets(S);
+  }
+  function applyMoves(S, moveIndices) {
+    var T = { cp: S.cp.slice(), co: S.co.slice(), ep: S.ep.slice(), eo: S.eo.slice() };
+    for (var i = 0; i < moveIndices.length; i++) T = applyMoveToState(T, MOVE_CUBES[moveIndices[i]]);
+    return T;
+  }
+  function randomScramble(n) {
+    n = n || 25;
+    var last = -1, last2 = -1, out = [];
+    while (out.length < n) {
+      var m = Math.floor(Math.random() * 18);
+      var f = m / 3 | 0;
+      if (f === last) continue;
+      if (last >= 0 && OPPOSITE[f] === last && f === last2) continue; // avoid A B A on opposite faces
+      out.push(m); last2 = last; last = f;
+    }
+    return out.map(function (m) { return MOVE_NAMES[m]; }).join(' ');
+  }
+
+  var api = {
+    initTables: initTables,
+    solve: solve,
+    faceletsToCubie: faceletsToCubie,
+    cubieToFacelets: cubieToFacelets,
+    validateState: validateState,
+    isSolved: isSolved,
+    applyMoves: applyMoves,
+    movesToFacelets: movesToFacelets,
+    parseMoves: parseMoves,
+    randomScramble: randomScramble,
+    MOVE_NAMES: MOVE_NAMES,
+    SOLVED: cubieToFacelets(IDENTITY),
+    CORNER_FACELET: CORNER_FACELET, EDGE_FACELET: EDGE_FACELET,
+    CORNER_COLOR: CORNER_COLOR, EDGE_COLOR: EDGE_COLOR,
+    getTwist: getTwist, getFlip: getFlip, getSliceComb: getSliceComb,
+    getCPerm: getCPerm, getEPerm: getEPerm, getSlicePerm: getSlicePerm,
+    permParity: permParity,
+    _internals: {
+      MOVE_CUBES: MOVE_CUBES, applyMoveToState: applyMoveToState, IDENTITY: IDENTITY,
+      isReady: function () { return ready; },
+      hPhase1: hPhase1,
+      phase1Solutions: phase1Solutions,
+      phase2State: phase2State,
+      phase2Solve: phase2Solve,
+      hPhase2: hPhase2,
+      getPrunSizes: function () {
+        return [prunTwistSlice.length, prunFlipSlice.length, prunSliceCPerm.length, prunSliceEPerm.length];
+      },
+      countReachable: function () {
+        var c1 = 0, i;
+        for (i = 0; i < prunTwistSlice.length; i++) if (prunTwistSlice[i] !== 255) c1++;
+        var c2 = 0;
+        for (i = 0; i < prunFlipSlice.length; i++) if (prunFlipSlice[i] !== 255) c2++;
+        var c3 = 0;
+        for (i = 0; i < prunSliceCPerm.length; i++) if (prunSliceCPerm[i] !== 255) c3++;
+        var c4 = 0;
+        for (i = 0; i < prunSliceEPerm.length; i++) if (prunSliceEPerm[i] !== 255) c4++;
+        return { ts: c1, fs: c2, sc: c3, se: c4 };
+      }
+    }
+  };
+
+  // Web-worker glue: when this file is loaded inside a Blob worker it serves requests.
+  if (typeof self !== 'undefined' && typeof importScripts === 'function' && typeof module === 'undefined') {
+    self.onmessage = function (e) {
+      var data = e.data;
+      try {
+        if (data.type === 'init') {
+          var t0 = Date.now();
+          initTables(function (stage, step, t0) {
+            self.postMessage({ type: 'progress', stage: stage, step: step });
+          });
+          self.postMessage({ type: 'ready', ms: Date.now() - t0 });
+        } else if (data.type === 'solve') {
+          var r = solve(data.facelets, { timeBudgetMs: data.timeBudgetMs });
+          self.postMessage({ type: 'result', id: data.id, result: r });
+        }
+      } catch (err) {
+        self.postMessage({ type: 'error', id: data && data.id, message: err.message });
+      }
+    };
+  }
+
+  return api;
+});
+
+</script>
+
+<script>
+(function () {
+  'use strict';
+  var CS = window.CubeSolver;
+
+  /* ================= geometry constants (CSS coordinates: x right, y down, z toward viewer) ================= */
+  var U = 56; // px per cube unit
+  var FACE_VEC = [[0,-1,0],[1,0,0],[0,0,1],[0,1,0],[-1,0,0],[0,0,-1]]; // U R F D L B
+  var STICKER = ['#f6f7f8','#c02b38','#0fa958','#ffd21e','#ff7a1a','#1a6dd4'];
+  var CORNER_POS = [[1,-1,1],[-1,-1,1],[-1,-1,-1],[1,-1,-1],[1,1,1],[-1,1,1],[-1,1,-1],[1,1,-1]];
+  var EDGE_POS   = [[1,-1,0],[0,-1,1],[-1,-1,0],[0,-1,-1],[1,1,0],[0,1,1],[-1,1,0],[0,1,-1],[1,0,1],[-1,0,1],[-1,0,-1],[1,0,-1]];
+  var CENTER_POS = [[0,-1,0],[1,0,0],[0,0,1],[0,1,0],[-1,0,0],[0,0,-1]];
+  var FACE_TF = ['rotateX(90deg)','rotateY(90deg)','translateZ(28px)','rotateX(-90deg)','rotateY(-90deg)','rotateY(180deg)'];
+  var FACE_AXIS = [[0,1,0],[1,0,0],[0,0,1],[0,1,0],[1,0,0],[0,0,1]];
+  var FACE_ANGLE = [-90, 90, 90, 90, -90, -90]; // CW quarter turn, degrees, CSS coords
+  var LAYER_TEST = [
+    function(p){return p[1]===-1;}, function(p){return p[0]===1;},  function(p){return p[2]===1;},
+    function(p){return p[1]===1;},  function(p){return p[0]===-1;}, function(p){return p[2]===-1;}
+  ];
+
+  /* ================= tiny linear algebra ================= */
+  function cross(a,b){ return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
+  // R = T * H^T where T,H are arrays of column vectors
+  function composeColumns(T,H){
+    var R=[[0,0,0],[0,0,0],[0,0,0]], r,c,k;
+    for (r=0;r<3;r++) for (c=0;c<3;c++){
+      var s=0;
+      for (k=0;k<3;k++) s += T[k][r]*H[k][c];
+      R[r][c]=s;
+    }
+    return R;
+  }
+  function matVec(A,v){ return [A[0][0]*v[0]+A[0][1]*v[1]+A[0][2]*v[2], A[1][0]*v[0]+A[1][1]*v[1]+A[1][2]*v[2], A[2][0]*v[0]+A[2][1]*v[1]+A[2][2]*v[2]]; }
+  function matMul(A,B){ var R=[[0,0,0],[0,0,0],[0,0,0]], r,c,k; for(r=0;r<3;r++)for(c=0;c<3;c++){var s=0;for(k=0;k<3;k++)s+=A[r][k]*B[k][c];R[r][c]=s;} return R; }
+  function rotAxis(a, deg){
+    var th = deg*Math.PI/180, c=Math.cos(th), s=Math.sin(th), t=1-c, x=a[0], y=a[1], z=a[2];
+    return [[t*x*x+c,   t*x*y-s*z, t*x*z+s*y],
+            [t*x*y+s*z, t*y*y+c,   t*y*z-s*x],
+            [t*x*z-s*y, t*y*z+s*x, t*z*z+c]];
+  }
+  function snapMat(R){ var r,c,k; for(r=0;r<3;r++)for(c=0;c<3;c++){ k=Math.round(R[r][c]); R[r][c]=k; } return R; }
+  function snapVec(v){ for(var i=0;i<3;i++) v[i]=Math.round(v[i]); return v; }
+  function tfString(rot,pos){
+    return 'matrix3d('+rot[0][0]+','+rot[1][0]+','+rot[2][0]+',0,'
+                    +rot[0][1]+','+rot[1][1]+','+rot[2][1]+',0,'
+                    +rot[0][2]+','+rot[1][2]+','+rot[2][2]+',0,'
+                    +pos[0]*U+','+pos[1]*U+','+pos[2]*U+',1)';
+  }
+  function easeInOutCubic(k){ return k<0.5 ? 4*k*k*k : 1-Math.pow(-2*k+2,3)/2; }
+
+  /* ================= orientation from (piece, position, orientation) ================= */
+  function cornerRot(p,i,o){
+    var H=[],T=[],k;
+    for (k=0;k<3;k++){
+      H.push(FACE_VEC[CS.CORNER_COLOR[p][k]]);
+      T.push(FACE_VEC[Math.floor(CS.CORNER_FACELET[i][(k+o)%3]/9)]);
+    }
+    return composeColumns(T,H);
+  }
+  function edgeRot(p,i,o){
+    var h0=FACE_VEC[CS.EDGE_COLOR[p][0]], h1=FACE_VEC[CS.EDGE_COLOR[p][1]];
+    var s0=Math.floor(CS.EDGE_FACELET[i][o%2]/9), s1=Math.floor(CS.EDGE_FACELET[i][(1+o)%2]/9);
+    var t0=FACE_VEC[s0], t1=FACE_VEC[s1];
+    return composeColumns([t0,t1,cross(t0,t1)],[h0,h1,cross(h0,h1)]);
+  }
+
+  /* ================= build DOM ================= */
+  var scene = document.getElementById('scene');
+  var els = {}; // 'c0'..'c7', 'e0'..'e11', 'k0'..'k5'
+  function makeCubie(key, stickerFaces){
+    var d = document.createElement('div');
+    d.className = 'cubie';
+    for (var f = 0; f < 6; f++) {
+      var face = document.createElement('div');
+      face.className = 'face' + (stickerFaces.indexOf(f) >= 0 ? ' sticker' : '');
+      if (stickerFaces.indexOf(f) >= 0) face.style.background = STICKER[f];
+      face.style.transform = FACE_TF[f] + (f === 2 ? '' : ' translateZ(28px)');
+      d.appendChild(face);
+    }
+    scene.appendChild(d);
+    els[key] = d;
+  }
+  (function buildCube(){
+    var i;
+    for (i=0;i<8;i++)  makeCubie('c'+i, CS.CORNER_COLOR[i]);
+    for (i=0;i<12;i++) makeCubie('e'+i, CS.EDGE_COLOR[i]);
+    for (i=0;i<6;i++)  makeCubie('k'+i, [i]);
+  })();
+
+  /* ================= state & rendering ================= */
+  var state = CS.faceletsToCubie(CS.SOLVED);
+  var placements = {};
+  function computePlacements(){
+    var i;
+    for (i=0;i<8;i++){ var p=state.cp[i]; placements['c'+p]={pos:CENTER( CORNER_POS[i]), rot:cornerRot(p,i,state.co[i])}; }
+    for (i=0;i<12;i++){ var e=state.ep[i]; placements['e'+e]={pos:CENTER(EDGE_POS[i]), rot:edgeRot(e,i,state.eo[i])}; }
+  }
+  function CENTER(v){ return [v[0],v[1],v[2]]; }
+  function renderFromState(){
+    computePlacements();
+    for (var key in placements) els[key].style.transform = tfString(placements[key].rot, placements[key].pos);
+  }
+  function facelets(){ return CS.cubieToFacelets(state); }
+
+  /* ================= orbit control ================= */
+  var rx=-26, ry=-32, dragging=false, lx=0, ly=0;
+  var viewport = document.getElementById('viewport');
+  function applyOrbit(){ scene.style.transform = 'rotateX('+rx+'deg) rotateY('+ry+'deg)'; }
+  applyOrbit();
+  viewport.addEventListener('pointerdown', function(e){ dragging=true; lx=e.clientX; ly=e.clientY; viewport.setPointerCapture(e.pointerId); });
+  viewport.addEventListener('pointermove', function(e){
+    if(!dragging) return;
+    ry += (e.clientX-lx)*0.35; rx -= (e.clientY-ly)*0.35;
+    rx = Math.max(-85, Math.min(85, rx));
+    lx=e.clientX; ly=e.clientY; applyOrbit();
+  });
+  viewport.addEventListener('pointerup', function(){ dragging=false; });
+  viewport.addEventListener('pointercancel', function(){ dragging=false; });
+
+  /* ================= animation ================= */
+  var animating=false, speed=1;
+  function animateMove(m, done){
+    if (animating){ if(done)done(); return; }
+    animating = true;
+    var face=(m/3)|0, power=m%3;
+    var target = power===1 ? 180 : (power===0 ? FACE_ANGLE[face] : -FACE_ANGLE[face]);
+    var dur = (power===1 ? 400 : 270)/speed;
+    var affected=[], key;
+    for (key in placements) if (LAYER_TEST[face](placements[key].pos)) affected.push(key);
+    var start = performance.now();
+    function frame(t){
+      var k = Math.min(1,(t-start)/dur), e2 = easeInOutCubic(k);
+      var R = rotAxis(FACE_AXIS[face], target*e2);
+      for (var i=0;i<affected.length;i++){
+        var pl = placements[affected[i]];
+        els[affected[i]].style.transform = tfString(matMul(R,pl.rot), matVec(R,pl.pos));
+      }
+      if (k<1) requestAnimationFrame(frame);
+      else {
+        state = CS.applyMoves(state,[m]);
+        renderFromState();
+        renderNet();
+        animating = false;
+        if (done) done();
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  /* ================= status ================= */
+  var statusEl = document.getElementById('status');
+  function status(msg, kind){ statusEl.innerHTML = msg; statusEl.className = 'status' + (kind ? ' '+kind : ''); }
+
+  /* ================= solution display & playback ================= */
+  var solution=null, cursor=0, playing=false, baseFacelets=null;
+  var solEl=document.getElementById('solution'), playBtn=document.getElementById('btn-play'),
+      fwdBtn=document.getElementById('btn-fwd'), backBtn=document.getElementById('btn-back'),
+      progressEl=document.getElementById('progress');
+  var chipEls=[];
+
+  function clearSolution(){
+    solution=null; cursor=0; playing=false; chipEls=[];
+    solEl.innerHTML='<div class="empty">No solution yet &mdash; scramble the cube and press <b>Solve</b>.</div>';
+    progressEl.innerHTML='&ndash;';
+    playBtn.disabled=true; playBtn.textContent='Play';
+    fwdBtn.disabled=true; backBtn.disabled=true;
+    setMovePad(false);
+  }
+  function showSolution(r){
+    solution=r; cursor=0; playing=false;
+    baseFacelets = facelets();
+    solEl.innerHTML='';
+    chipEls=[];
+    var mk = function(names, phaseIdx, offset){
+      var wrap=document.createElement('div'); wrap.className='phase';
+      var tag=document.createElement('span'); tag.className='phase-tag '+(phaseIdx===0?'p1':'p2');
+      tag.textContent = (phaseIdx===0?'Phase 1':'Phase 2') + ' \u00b7 ' + names.length + ' moves';
+      wrap.appendChild(tag);
+      var chips=document.createElement('div'); chips.className='chips' + (phaseIdx===1?' p2chips':'');
+      for (var i=0;i<names.length;i++){
+        var c=document.createElement('span'); c.className='chip'; c.textContent=names[i];
+        chips.appendChild(c); chipEls.push(c);
+      }
+      wrap.appendChild(chips); solEl.appendChild(wrap);
+    };
+    mk(r.phase1,0,0); mk(r.phase2,1,r.phase1.length);
+    playBtn.disabled=false; playBtn.textContent='Play';
+    fwdBtn.disabled=false; backBtn.disabled=false;
+    setMovePad(true);
+    updateChips();
+  }
+  function updateChips(){
+    for (var i=0;i<chipEls.length;i++){
+      chipEls[i].className = 'chip' + (i<cursor?' done':(i===cursor?' cur':''));
+    }
+    if (solution){
+      progressEl.textContent = cursor >= solution.moves.length ? 'Solved!' : ('Move ' + (cursor+1) + ' / ' + solution.moves.length);
+      if (cursor===0) progressEl.textContent = 'Move 1 / ' + solution.moves.length;
+      if (solution.moves.length===0) progressEl.textContent='Already solved';
+    }
+  }
+  function setMovePad(lock){
+    var btns = document.querySelectorAll('.movepad button');
+    for (var i=0;i<btns.length;i++) btns[i].disabled = lock;
+    document.getElementById('btn-random').disabled = lock;
+    document.getElementById('btn-reset').disabled = lock;
+  }
+  function allMoveNames(){ return solution ? solution.moves : []; }
+  function inverseName(name){
+    if (name.indexOf('2')>=0) return name;
+    if (name.indexOf("'")>=0) return name.charAt(0);
+    return name.charAt(0) + "'";
+  }
+  function finishPlayback(){
+    playing=false; playBtn.textContent='Replay';
+    setMovePad(false);
+    status('Cube solved \u2014 <b>' + solution.moves.length + '</b> moves (' + solution.phase1.length +
+      ' in phase 1, ' + solution.phase2.length + ' in phase 2). Search took ' + solution.timeMs + ' ms.', 'ok');
+  }
+  function playNext(){
+    if (!playing || !solution) return;
+    var names = allMoveNames();
+    if (cursor >= names.length){ finishPlayback(); return; }
+    var mi = CS.parseMoves(names[cursor])[0];
+    animateMove(mi, function(){ cursor++; updateChips(); if (cursor>=names.length){ finishPlayback(); } else { setTimeout(playNext, 60); } });
+  }
+  playBtn.addEventListener('click', function(){
+    if (!solution) return;
+    if (playing){ playing=false; playBtn.textContent='Play'; setMovePad(false); return; }
+    if (cursor>=solution.moves.length){ // replay
+      state = CS.faceletsToCubie(baseFacelets); renderFromState(); cursor=0; updateChips();
+    }
+    playing=true; playBtn.textContent='Pause'; setMovePad(true); playNext();
+  });
+  fwdBtn.addEventListener('click', function(){
+    if (!solution || animating || playing || cursor>=solution.moves.length) return;
+    var mi = CS.parseMoves(solution.moves[cursor])[0];
+    animateMove(mi, function(){ cursor++; updateChips(); if (cursor>=solution.moves.length) finishPlayback(); });
+  });
+  backBtn.addEventListener('click', function(){
+    if (!solution || animating || playing || cursor<=0) return;
+    var name = inverseName(solution.moves[cursor-1]);
+    var mi = CS.parseMoves(name)[0];
+    animateMove(mi, function(){ cursor--; updateChips(); });
+  });
+  var speedInput=document.getElementById('speed'), speedVal=document.getElementById('speedval');
+  speedInput.addEventListener('input', function(){ speed=parseFloat(speedInput.value); speedVal.textContent='\u00d7'+speed.toFixed(1); });
+
+  /* ================= move pad ================= */
+  var movepad = document.getElementById('movepad');
+  ['U',"U'",'R',"R'",'F',"F'",'D',"D'",'L',"L'",'B',"B'"].forEach(function(name){
+    var b=document.createElement('button'); b.textContent=name;
+    b.addEventListener('click', function(){
+      if (animating || playing) return;
+      clearSolution();
+      animateMove(CS.parseMoves(name)[0]);
+    });
+    movepad.appendChild(b);
+  });
+
+  /* ================= action buttons ================= */
+  document.getElementById('btn-random').addEventListener('click', function(){
+    if (animating || playing) return;
+    clearSolution();
+    var scr = CS.randomScramble(25);
+    state = CS.applyMoves(state, CS.parseMoves(scr));
+    renderFromState(); renderNet();
+    status('Scrambled with 25 random moves:<br><b>' + scr + '</b>');
+  });
+  document.getElementById('btn-reset').addEventListener('click', function(){
+    if (animating || playing) return;
+    clearSolution();
+    state = CS.faceletsToCubie(CS.SOLVED);
+    renderFromState(); renderNet();
+    status('Back to the solved state.');
+  });
+
+  /* ================= net editor ================= */
+  var netEl=document.getElementById('net'), paletteEl=document.getElementById('palette');
+  var editBuffer=null, selected=0;
+  var FACE_POS = {U:[4,1], R:[7,4], F:[4,4], D:[4,7], L:[1,4], B:[10,4]}; // 1-indexed grid col/row of top-left cell
+  var FACE_OFFSET = {U:0, R:9, F:18, D:27, L:36, B:45};
+  (function buildNet(){
+    ['U','R','F','D','L','B'].forEach(function(f){
+      for (var r=0;r<3;r++) for (var c=0;c<3;c++){
+        var cell=document.createElement('div');
+        cell.className='cell';
+        cell.style.gridColumn = (FACE_POS[f][0]+c);
+        cell.style.gridRow = (FACE_POS[f][1]+r);
+        var idx = FACE_OFFSET[f] + r*3 + c;
+        cell.setAttribute('data-idx', idx);
+        if (idx%9===4) cell.className += ' center';
+        else cell.addEventListener('click', function(){
+          var i = parseInt(this.getAttribute('data-idx'),10);
+          if (editBuffer===null) editBuffer = facelets();
+          editBuffer = editBuffer.substring(0,i) + 'URFDLB'.charAt(selected) + editBuffer.substring(i+1);
+          renderNet();
+        });
+        netEl.appendChild(cell);
+      }
+    });
+    for (var i=0;i<6;i++){
+      (function(i){
+        var sw=document.createElement('div');
+        sw.className='swatch'+(i===0?' sel':'');
+        sw.style.background=STICKER[i];
+        sw.title='Paint with ' + 'URFDLB'.charAt(i);
+        sw.addEventListener('click', function(){
+          selected=i;
+          var all=paletteEl.children;
+          for (var j=0;j<all.length;j++) all[j].className='swatch'+(j===i?' sel':'');
+        });
+        paletteEl.appendChild(sw);
+      })(i);
+    }
+  })();
+  function renderNet(){
+    var buf = editBuffer || facelets();
+    var cells = netEl.children;
+    for (var i=0;i<cells.length;i++){
+      var idx = parseInt(cells[i].getAttribute('data-idx'),10);
+      cells[i].style.background = STICKER['URFDLB'.indexOf(buf.charAt(idx))];
+    }
+  }
+  document.getElementById('btn-apply').addEventListener('click', function(){
+    if (editBuffer===null){ status('Nothing painted yet \u2014 the net still mirrors the current cube.'); return; }
+    try {
+      var S = CS.faceletsToCubie(editBuffer);
+      CS.validateState(S);
+      state = S; editBuffer=null;
+      clearSolution();
+      renderFromState(); renderNet();
+      status('Painted state loaded \u2014 all group invariants satisfied (twist, flip, parity).', 'ok');
+    } catch (err) { status('<b>Invalid cube:</b> ' + err.message, 'err'); }
+  });
+  document.getElementById('btn-revert').addEventListener('click', function(){
+    editBuffer=null; renderNet(); status('Edits discarded.');
+  });
+
+  /* ================= solver wiring ================= */
+  var worker=null, solverReady=false, mainTried=false;
+  function onProgress(stage, step){
+    var names=['corner twist \u00d7 slice','edge flip \u00d7 slice','corners \u00d7 slice (perm)','edges \u00d7 slice (perm)'];
+    status('Generating pruning tables (one-time, ~1\u20133 s): <b>' + (step) + '/4</b> \u2014 ' + names[step-1] + '\u2026', 'busy');
+  }
+  function onReady(ms){
+    solverReady=true;
+    document.getElementById('btn-solve').disabled=false;
+    status('Solver ready \u2014 pruning tables built in ' + ms + ' ms. Scramble the cube and press <b>Solve</b>.', 'ok');
+  }
+  function onResult(r){
+    if (r.moves.length===0){ status('This cube is already solved.'); return; }
+    showSolution(r);
+    status('Solution found: <b>' + r.moves.length + ' moves</b> in ' + r.timeMs + ' ms (phase 1: ' +
+      r.phase1.length + ', phase 2: ' + r.phase2.length + '). Playing\u2026');
+    playing=true; playBtn.textContent='Pause'; setMovePad(true); playNext();
+  }
+  function tryMainFallback(){
+    if (mainTried) return; mainTried=true; worker=null;
+    status('Web Worker unavailable \u2014 generating tables on the main thread\u2026', 'busy');
+    setTimeout(function(){
+      var t0=performance.now();
+      try {
+        CS.initTables(onProgress);
+        onReady(Math.round(performance.now()-t0));
+      } catch (err){ status('Failed to initialize solver: ' + err.message, 'err'); }
+    }, 50);
+  }
+  try {
+    var src = document.getElementById('solver-src').textContent;
+    var blob = new Blob([src], {type:'text/javascript'});
+    worker = new Worker(URL.createObjectURL(blob));
+    worker.onmessage = function(e){
+      var d=e.data;
+      if (d.type==='ready') onReady(d.ms);
+      else if (d.type==='progress') onProgress(d.stage, d.step);
+      else if (d.type==='result') onResult(d.result);
+      else if (d.type==='error') status('<b>Solver error:</b> ' + d.message, 'err');
+    };
+    worker.onerror = function(){ tryMainFallback(); };
+    worker.postMessage({type:'init'});
+  } catch (e){ tryMainFallback(); }
+
+  document.getElementById('btn-solve').addEventListener('click', function(){
+    if (!solverReady){ status('Pruning tables are still being generated\u2026', 'busy'); return; }
+    if (animating || playing){ return; }
+    if (CS.isSolved(state)){ status('This cube is already solved \u2014 scramble it first.'); return; }
+    clearSolution();
+    status('Searching with IDA* and pruning tables\u2026', 'busy');
+    var f = facelets();
+    if (worker){
+      worker.postMessage({type:'solve', facelets: f});
+    } else {
+      setTimeout(function(){
+        try { onResult(CS.solve(f)); } catch (err){ status('<b>Solver error:</b> ' + err.message, 'err'); }
+      }, 50);
+    }
+  });
+
+  /* ================= init ================= */
+  renderFromState();
+  renderNet();
+})();
+
+</script>
+</body>
+</html>
