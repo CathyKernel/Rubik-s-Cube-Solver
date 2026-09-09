@@ -1548,6 +1548,13 @@
     for (i=0;i<8;i++)  makeCubie('c'+i, CS.CORNER_COLOR[i]);
     for (i=0;i<12;i++) makeCubie('e'+i, CS.EDGE_COLOR[i]);
     for (i=0;i<6;i++)  makeCubie('k'+i, [i]);
+    /* FIX: center cubies were never positioned - all six stacked at the scene
+       origin, so every face showed a black hole in its middle. Place each
+       center on its face. Centers only ever spin in place (never travel to
+       another slot), so a one-time transform suffices; they correctly stay
+       out of `placements` and are never re-rendered. */
+    var I3 = [[1,0,0],[0,1,0],[0,0,1]];
+    for (i=0;i<6;i++)  els['k'+i].style.transform = tfString(I3, CENTER_POS[i]);
   })();
 
   /* ================= state & rendering ================= */
